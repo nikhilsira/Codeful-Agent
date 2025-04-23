@@ -1,0 +1,84 @@
+{
+  "value": [
+    {
+      "Product": "HyperCharge Batteries",
+      "sum_Sales": 69152
+    },
+    {
+      "Product": "GigaMesh Routers",
+      "sum_Sales": 77973
+    },
+    {
+      "Product": "SmartSync Watches",
+      "sum_Sales": 85739
+    },
+    {
+      "Product": "InvisiShield Phone Cases",
+      "sum_Sales": 91770
+    },
+    {
+      "Product": "PeakFuel Energy Bars",
+      "sum_Sales": 78556
+    },
+    {
+      "Product": "EverFresh Refrigerators",
+      "sum_Sales": 73197
+    },
+    {
+      "Product": "ZenGlow Skincare",
+      "sum_Sales": 81734
+    },
+    {
+      "Product": "EcoRide Bicycles",
+      "sum_Sales": 64655
+    },
+    {
+      "Product": "FusionFlame Stoves",
+      "sum_Sales": 90460
+    },
+    {
+      "Product": "SolarMax Panels",
+      "sum_Sales": 78218
+    },
+    {
+      "Product": "NeoFit Wearables",
+      "sum_Sales": 115456
+    },
+    {
+      "Product": "AquaPure Filters",
+      "sum_Sales": 66489
+    },
+    {
+      "Product": "BioHarmony Probiotics",
+      "sum_Sales": 95228
+    },
+    {
+      "Product": "QuantumBoost Laptops",
+      "sum_Sales": 98900
+    },
+    {
+      "Product": "NutriLife Supplements",
+      "sum_Sales": 86359
+    },
+    {
+      "Product": "OmniSound Headphones",
+      "sum_Sales": 83801
+    },
+    {
+      "Product": "ArcticBreeze Air Conditioners",
+      "sum_Sales": 80087
+    },
+    {
+      "Product": "VistaVision TVs",
+      "sum_Sales": 78752
+    },
+    {
+      "Product": "TranquilSleep Mattresses",
+      "sum_Sales": 91100
+    },
+    {
+      "Product": "FlexiGrip Tools",
+      "sum_Sales": 75134
+    }
+  ]
+}

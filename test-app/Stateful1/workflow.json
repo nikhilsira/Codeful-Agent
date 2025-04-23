@@ -1,0 +1,31 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "actions": {
+            "Get_an_embedding": {
+                "type": "ServiceProvider",
+                "inputs": {
+                    "parameters": {
+                        "deploymentId": "text-embeddings",
+                        "input": "[\"Light Roast\",\"Medium Blend\",\"Morning Blend\"]"
+                    },
+                    "serviceProviderConfiguration": {
+                        "connectionName": "openai-01",
+                        "operationId": "getSingleEmbedding",
+                        "serviceProviderId": "/serviceProviders/openai"
+                    }
+                },
+                "runAfter": {}
+            }
+        },
+        "outputs": {},
+        "triggers": {
+            "When_a_HTTP_request_is_received": {
+                "type": "Request",
+                "kind": "Http"
+            }
+        }
+    },
+    "kind": "Stateful"
+}

@@ -1,0 +1,84 @@
+{
+  "value": [
+    {
+      "Country": "United Kingdom",
+      "sum_Sales": 90156
+    },
+    {
+      "Country": "Italy",
+      "sum_Sales": 71822
+    },
+    {
+      "Country": "Switzerland",
+      "sum_Sales": 72373
+    },
+    {
+      "Country": "South Korea",
+      "sum_Sales": 76069
+    },
+    {
+      "Country": "India",
+      "sum_Sales": 88129
+    },
+    {
+      "Country": "Japan",
+      "sum_Sales": 97800
+    },
+    {
+      "Country": "Netherlands",
+      "sum_Sales": 77398
+    },
+    {
+      "Country": "Turkey",
+      "sum_Sales": 82480
+    },
+    {
+      "Country": "Indonesia",
+      "sum_Sales": 79289
+    },
+    {
+      "Country": "France",
+      "sum_Sales": 68589
+    },
+    {
+      "Country": "United States",
+      "sum_Sales": 107607
+    },
+    {
+      "Country": "Brazil",
+      "sum_Sales": 60395
+    },
+    {
+      "Country": "China",
+      "sum_Sales": 108050
+    },
+    {
+      "Country": "Germany",
+      "sum_Sales": 104146
+    },
+    {
+      "Country": "Saudi Arabia",
+      "sum_Sales": 94824
+    },
+    {
+      "Country": "Russia",
+      "sum_Sales": 94938
+    },
+    {
+      "Country": "Spain",
+      "sum_Sales": 61229
+    },
+    {
+      "Country": "Australia",
+      "sum_Sales": 85829
+    },
+    {
+      "Country": "Canada",
+      "sum_Sales": 60197
+    },
+    {
+      "Country": "Mexico",
+      "sum_Sales": 81440
+    }
+  ]
+}

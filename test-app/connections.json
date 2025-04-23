@@ -1,0 +1,63 @@
+{
+  "agentConnections": {
+  "agent": {
+      "authentication": {
+          "key": "<agent-key>",
+          "type": "Key"
+      },
+      "displayName": "openai",
+      "endpoint": "<agent-endpoint>",
+      "type": "model"
+  }
+},
+  "managedApiConnections": {
+    "office365": {
+      "api": {
+        "id": "/subscriptions/f74e50f1-d683-4b18-a016-c6234e829335/providers/Microsoft.Web/locations/westus3/managedApis/office365"
+      },
+      "connection": {
+        "id": "/subscriptions/f74e50f1-d683-4b18-a016-c6234e829335/resourceGroups/larg-stekou/providers/Microsoft.Web/connections/office365"
+      },
+      "connectionRuntimeUrl": "https://fc757e12707aa7b6.10.common.logic-westus3.azure-apihub.net/apim/office365/c504ea8e1ec14220917be0a022c8ebcb/",
+      "authentication": {
+        "type": "Raw",
+        "scheme": "Key",
+        "parameter": "eyJhbGciOiJSUzI1NiIsImtpZCI6IkU3NEQwODkxRkJGOUQ1MTM4RkU4RjYzNEY5N0ZEMzVGOEE0MUNEQjMiLCJ4NXQiOiI1MDBJa2Z2NTFST1A2UFkwLVhfVFg0cEJ6Yk0iLCJ0eXAiOiJKV1QifQ.eyJ0cyI6IjcyZjk4OGJmLTg2ZjEtNDFhZi05MWFiLTJkN2NkMDExZGI0NyIsImNzIjoibG9naWMtYXBpcy13ZXN0dXMzL29mZmljZTM2NS9jNTA0ZWE4ZTFlYzE0MjIwOTE3YmUwYTAyMmM4ZWJjYiIsInYiOiItOTIyMzM3MjAzNjg1NDc3NTgwOCIsImVudmlkIjoiZmM3NTdlMTI3MDdhYTdiNiIsImF1ZCI6Imh0dHBzOi8vZmM3NTdlMTI3MDdhYTdiNi4xMC5jb21tb24ubG9naWMtd2VzdHVzMy5henVyZS1hcGlodWIubmV0L2FwaW0vb2ZmaWNlMzY1L2M1MDRlYThlMWVjMTQyMjA5MTdiZTBhMDIyYzhlYmNiIiwicnVudGltZXVybCI6Imh0dHBzOi8vZmM3NTdlMTI3MDdhYTdiNi4xMC5jb21tb24ubG9naWMtd2VzdHVzMy5henVyZS1hcGlodWIubmV0L2FwaW0vb2ZmaWNlMzY1L2M1MDRlYThlMWVjMTQyMjA5MTdiZTBhMDIyYzhlYmNiIiwibWFuYWdlbWVudCI6Imh0dHBzOi8vbWFuYWdlbWVudC5sb2dpYy13ZXN0dXMzLmF6dXJlLWFwaWh1Yi5uZXQvIiwibmJmIjoxNzQ1MjUyNDQyLCJleHAiOjE3NDU4NTcyNDIsImlhdCI6MTc0NTI1MjQ0MiwiaXNzIjoiaHR0cHM6Ly9sb2dpYy1hcGlzLXdlc3R1czMuYXp1cmUtYXBpaHViLm5ldC8ifQ.AWZBWXqfmFQG0fK1I7r4H0ws1T1FZi8OWcBWJPUUSxGB0-F0j3fZHZ3GOAWdSA24ox1Jy3kvAkZ8g455K8e-sR5JXVxcykp3sMjYlEI5U00PYYMgKYr2YKXYbmrKBggCyfaMK8fI2vz-yklf3gh5XKoJLYiChwG-nNu9AfwAaKZi7UnFz-UJzAyHZ7fel6Ybg-Cju9uveuBPkwN7GIiU2BNLGnB8_rCiccro9TYFYPcQXPp8XeiA32ZPFh9HCj2qwW-7DDPw1Z4ettm_XlZhVir1zmrqPJBiY18Z-umU8x9BEctOXh7vt3eDz7y-VQc25bikV6tQEln4IUthBaMxnA"
+      }
+    }
+  },
+  "serviceProviderConnections": {
+      "azureblob": {
+      "parameterValues": {
+        "connectionString": "<azure-storage-connection-string>"
+      },
+      "parameterSetName": "connectionString",
+      "serviceProvider": {
+        "id": "/serviceProviders/AzureBlob"
+      },
+      "displayName": "azureblob"
+    },
+      "azureaisearch": {
+          "displayName": "aisearch-connection",
+          "parameterSetName": "ConnectionString",
+          "parameterValues": {
+              "searchServiceAdminKey": "<azure-search-admin-key>",
+              "searchServiceEndpoint": "<azure-search-endpoint>"
+          },
+          "serviceProvider": {
+              "id": "/serviceProviders/azureaisearch"
+          }
+      },
+      "openai": {
+          "displayName": "aoai-connection",
+          "parameterSetName": "KeyAndEndpointConnection",
+          "parameterValues": {
+            "openAIEndpoint": "<azure-openai-endpoint>",
+            "openAIKey": "<openai-key>"
+          },
+          "serviceProvider": {
+              "id": "/serviceProviders/openai"
+          }
+      }
+  }
+}
