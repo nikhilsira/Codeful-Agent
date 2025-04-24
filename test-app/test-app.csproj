@@ -25,7 +25,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Azure.WebJobs.Extensions.DurableTask" Version="3.0.4"/>
-    <PackageReference Include="LogicApps.Connectors" Version="1.0.9"/>
+    <PackageReference Include="LogicApps.Connectors" Version="1.0.10"/>
     <PackageReference Include="Microsoft.SemanticKernel" Version="1.8.0" />
   </ItemGroup>
   <ItemGroup>
