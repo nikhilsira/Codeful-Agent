@@ -14,6 +14,7 @@ using Newtonsoft.Json;
 using LogicApps.Connectors.ServiceProviders.AzureBlob;
 using LogicApps.Connectors.Managed.Kusto;
 using Fluid.Ast;
+using Kusto.Cloud.Platform.Utils;
 
 namespace LogicApps.Agent
 {
@@ -70,7 +71,7 @@ namespace LogicApps.Agent
             return await WriterAgentFunction.WriterAgentLoop(
                 connectionName: "agent",
                 deploymentId: "gpt-4o",
-                agentTools: new[] { WriterAgentFunction.GetSalesDataByCountry, WriterAgentFunction.GetSalesDataByProduct },
+                agentTools: new[] { WriterAgentFunction.GetSalesDataByCountry, WriterAgentFunction.GetSalesDataByProduct, WriterAgentFunction.GetReportingPolicyDoc },
                 writerAgentInput: writerAgentInput,
                 context: context,
                 log: log);
@@ -204,12 +205,18 @@ namespace LogicApps.Agent
             AgentKernel.ImportPluginFromFunctions(
                 pluginName: WriterAgentFunction.GetSalesDataByCountry.Name,
                 functions: new[] { WriterAgentFunction.GetSalesDataByCountry.KernelFunction });
+            
+            AgentKernel.ImportPluginFromFunctions(
+                pluginName: WriterAgentFunction.GetReportingPolicyDoc.Name,
+                functions: new[] { WriterAgentFunction.GetReportingPolicyDoc.KernelFunction });
         }
 
         public static async Task<string> GetReport(string functionName, KernelArguments arguments, IDurableOrchestrationContext context, ILogger log)
         {
 
-            string aggName;
+            string aggName ="";
+            string result = "";
+            string blobName = "";
 
             switch (functionName)
             {
@@ -221,20 +228,36 @@ namespace LogicApps.Agent
                     aggName = "Country";
                     break;
 
+                case "get_reporting_policy_list":
+                    blobName = "Sales_Reporting_Policy.md";
+                    break;
+
                 default:
                     throw new InvalidOperationException();
             }
 
             var dateInfo = JsonConvert.DeserializeObject<DateInfo>(arguments[functionName].ToString());
-            var kusto = await context.ListKustoResultsPostAsync(connectionId: "kusto-1", body: new QueryAndListSchema
+            if(aggName.IsNotNullOrEmpty())
             {
-                Cluster = "https://logicapps.eastus.kusto.windows.net/",
-                Db = "process",
-                Csl = "let y = "+dateInfo.Year+";\nlet m = "+dateInfo.Month+";\nlet startDateString=strcat(y-1, \"-\", m, \"-01 00:00:00.0000000\");\nlet startDate=todatetime(startDateString);\nlet enddate=datetime_add('month', 1, startDate);\nSalesRecords\n|where DATETIME >= startDate  and DATETIME <= enddate\n| summarize sum(Sales) by "+aggName+""
-            });
-            log.LogInformation("Kusto result: {result}", kusto.ToString());
-
-            return kusto.ToString();
+                var kusto = await context.ListKustoResultsPostAsync(connectionId: "kusto-1", body: new QueryAndListSchema
+                {
+                    Cluster = "https://logicapps.eastus.kusto.windows.net/",
+                    Db = "process",
+                    Csl = "let y = "+dateInfo.Year+";\nlet m = "+dateInfo.Month+";\nlet startDateString=strcat(y-1, \"-\", m, \"-01 00:00:00.0000000\");\nlet startDate=todatetime(startDateString);\nlet enddate=datetime_add('month', 1, startDate);\nSalesRecords\n|where DATETIME >= startDate  and DATETIME <= enddate\n| summarize sum(Sales) by "+aggName+""
+                });
+                log.LogInformation("Kusto result: {result}", kusto.ToString());
+                result = kusto.ToString();
+            }
+            if (blobName.IsNotNullOrEmpty())
+            {
+                var blob = await context.ReadBlobAsync(connectionId: "azureblob", input: new ReadBlobInput{
+                    ContainerName = "policydocs",
+                    BlobName = blobName,
+                });
+                log.LogInformation("Blob result: {result}", blob.Content);
+                result = blob.Content;
+            }
+            return result;
         }
         public class DateInfo
         {
@@ -276,5 +299,10 @@ namespace LogicApps.Agent
                     }
                 }
             }");
+
+        public static readonly AgentTool GetReportingPolicyDoc = new AgentTool(
+            name: "get_reporting_policy_list",
+            description: "Get sales forecast report writing policy. The pociies are written in md format",
+            schema: @"{}");
     }
 }
