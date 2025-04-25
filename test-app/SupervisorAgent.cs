@@ -15,6 +15,7 @@ using LogicApps.Connectors.ServiceProviders.AzureBlob;
 using LogicApps.Connectors.Managed.Kusto;
 using Fluid.Ast;
 using ICU4N.Util;
+using LogicApps.Connectors.Managed.Outlook;
 
 namespace LogicApps.Agent
 {
@@ -255,6 +256,14 @@ namespace LogicApps.Agent
 
                 case "publisher_agent":
                     SupervisorAgentFunction.FinalDraft = arguments[functionName].ToString();
+                    var message = new ClientSendHtmlMessage
+                    {
+                        To = "nikhilsira@microsoft.com",
+                        Subject = "Final report",
+                        Body = SupervisorAgentFunction.FinalDraft
+                    };
+
+                    await context.SendEmailV2Async("office365", message);
                     return "";
 
                 default:
