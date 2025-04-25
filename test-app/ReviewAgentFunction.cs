@@ -18,12 +18,12 @@ using Kusto.Cloud.Platform.Utils;
 
 namespace LogicApps.Agent
 {
-    public static class WriterAgentFunction
+    public static class ReviewAgentFunction
     {
         private static Kernel AgentKernel { get; set; }
         private static ChatHistory ChatHistory { get; set; }
 
-        [FunctionName("Function1_HttpStart")]
+        [FunctionName("Function1_Reviewer_HttpStart")]
         public static async Task<HttpResponseMessage> HttpStart(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestMessage req,
             [DurableClient] IDurableOrchestrationClient starter,
@@ -31,10 +31,10 @@ namespace LogicApps.Agent
         {
 
             var requestStream = await req.Content.ReadAsStringAsync();
-            var writerAgentInput = JsonConvert.DeserializeObject<WriterAgentInput>(requestStream);
+            var reviewAgentInput = JsonConvert.DeserializeObject<ReviewAgentInput>(requestStream);
 
             // Function input comes from the request content.
-            string instanceId = await starter.StartNewAsync("AgentOrchestrator", input: writerAgentInput);
+            string instanceId = await starter.StartNewAsync("ReviewAgentOrchestrator", input: reviewAgentInput);
 
             log.LogInformation("Started orchestration with ID = '{instanceId}'.", instanceId);
             
@@ -60,38 +60,38 @@ namespace LogicApps.Agent
             };
         }
 
-        [FunctionName("AgentOrchestrator")]
+        [FunctionName("ReviewAgentOrchestrator")]
         public static async Task<string> AgentOrchestrator(
             [OrchestrationTrigger] IDurableOrchestrationContext context, ILogger log)
         {
             log.LogInformation("Start agent orchestrator.");
 
-            var writerAgentInput = context.GetInput<WriterAgentInput>();
+            var reviewAgentInput = context.GetInput<ReviewAgentInput>();
 
-            return await WriterAgentFunction.WriterAgentLoop(
+            return await ReviewAgentFunction.ReviewAgentLoop(
                 connectionName: "agent",
                 deploymentId: "gpt-4o",
-                agentTools: new[] { WriterAgentFunction.GetSalesDataByCountry, WriterAgentFunction.GetSalesDataByProduct, WriterAgentFunction.GetReportingPolicyDoc },
-                writerAgentInput: writerAgentInput,
+                agentTools: new[] { ReviewAgentFunction.GetSalesDataByCountry, ReviewAgentFunction.GetSalesDataByProduct, ReviewAgentFunction.GetReportingPolicyDoc },
+                reviewAgentInput: reviewAgentInput,
                 context: context,
                 log: log);
         }
 
-        private static async Task<string> WriterAgentLoop(
+        private static async Task<string> ReviewAgentLoop(
             string connectionName,
             string deploymentId,
             AgentTool[] agentTools,
-            WriterAgentInput writerAgentInput,
+            ReviewAgentInput reviewAgentInput,
             IDurableOrchestrationContext context,
             ILogger log)
         {
             var agentConnection = ConnectionFileParser.GetAgentConnection(connectionName);
 
-            var userMessage = "*****Date range****\n"+writerAgentInput.ReportDateRange+"\n\nif there was a previous draft, they will be provided below. if they are present please incorporate the feedback while adhering to the original guidance.\n\n*****Previous Draft****\n``\n"+writerAgentInput.CurrentDraft+"\n``\n\n**** review feedback ***\n``\n"+writerAgentInput.CurrentDraftFeedback+"\n``";
+            var userMessage = "Below is the draft of the sales performance report for the time period "+reviewAgentInput.ReportPeriod+"\n\n``\n"+reviewAgentInput.BodyDraftReport+"\n``";
 
-            await context.CallActivityAsync("InitializeKernelAndQueueUserMessage", (deploymentId, agentConnection.Endpoint, agentConnection.ApiKey, userMessage));
+            await context.CallActivityAsync("InitializeReviewAgentKernelAndQueueUserMessage", (deploymentId, agentConnection.Endpoint, agentConnection.ApiKey, userMessage));
 
-            var result = await WriterAgentFunction
+            var result = await ReviewAgentFunction
                 .GetAgentResponse(context: context, log: log);
 
             log.LogInformation("Agent response: {response}", result);
@@ -99,13 +99,13 @@ namespace LogicApps.Agent
             return result;
         }
 
-        [FunctionName("InitializeKernelAndQueueUserMessage")]
+        [FunctionName("InitializeReviewAgentKernelAndQueueUserMessage")]
         public static async Task QueueUserMessageActivity(
             [ActivityTrigger] IDurableActivityContext context)
         {
             var (deploymentId, endpoint, apiKey, userMessage) = context.GetInput<(string, string, string, string)>();
  
-            WriterAgentFunction.InitializeAgentKernel(
+            ReviewAgentFunction.InitializeAgentKernel(
                 deploymentId: deploymentId,
                 endpoint: endpoint,
                 connectionKey: apiKey);
@@ -113,7 +113,7 @@ namespace LogicApps.Agent
             ChatHistory.AddUserMessage(userMessage);
         }
 
-        [FunctionName("GetChatHistory")]
+        [FunctionName("GetReviewerChatHistory")]
         public static async Task<ChatMessageActivityResult> GetChatHistoryActivity(
             [ActivityTrigger] IDurableActivityContext context
         )
@@ -142,7 +142,7 @@ namespace LogicApps.Agent
             public string Content {get; set;}
         }
 
-        [FunctionName("PostFunctionResult")]
+        [FunctionName("PostReviewerFunctionResult")]
         public static async Task PostFunctionResultActivity([ActivityTrigger] IDurableActivityContext context)
         {
             var (content, funcName, funcId) = context.GetInput<(string, string, string)>();
@@ -162,14 +162,14 @@ namespace LogicApps.Agent
             do
             {
 
-                var chatMessage = await context.CallActivityAsync<ChatMessageActivityResult>("GetChatHistory", null);
+                var chatMessage = await context.CallActivityAsync<ChatMessageActivityResult>("GetReviewerChatHistory", null);
                 log.LogInformation("Chat message: {message}", JsonConvert.SerializeObject(chatMessage));
                 if (chatMessage.FunctionCalls.Any())
                 {
                     foreach (var functionCall in chatMessage.FunctionCalls)
                     {
-                        var reportContent = await WriterAgentFunction.GetReport(functionCall.Name, functionCall.Arguments, context: context, log: log);
-                        await context.CallActivityAsync("PostFunctionResult", (reportContent, functionCall.Name, functionCall.Id));
+                        var reportContent = await ReviewAgentFunction.GetReport(functionCall.Name, functionCall.Arguments, context: context, log: log);
+                        await context.CallActivityAsync("PostReviewerFunctionResult", (reportContent, functionCall.Name, functionCall.Id));
                     }
                 }
                 else
@@ -196,19 +196,19 @@ namespace LogicApps.Agent
             ChatHistory = new ChatHistory();
 
             ChatHistory.AddSystemMessage(
-                @"You are being tasked to write a detailed sales performance report.  You have access to monthly sales records for the last two years. \n\nYou may also be provided with a previous draft of a report with detailed feedback and you will update the previous draft to incorporate the feedback while adhering to the original guidance.\n\nYour responsibility\n\n•\tPulls raw data from the tools provided\n•\t Generate a structured report draft, providing:\n1.\tTextual summary of month-over-month changes, highlight bullet points.\n2.\tData references (e.g., top-line revenue figures).\n3.\t(Optional) Basic chart suggestions or placeholders.\n\nYou will also be provide date range for the report. example March 2025 and any special instructions (e.g., “Focus on new product line,” “Compare to last year’s forecast”).\n\nYour draft report should contain the following\n1.\tText narrative (“April revenue reached $2.1M, up 5% from March...”).\n2.\tKey metrics (tables, bullet points).\n3.\tReferences to raw data (so the Reviewer can spot-check if needed).\n");
+                @"You are a report reviewer and is reponble for revewing salees perforance report. \n\nYou will be given a draft report and your responsibilities are the following\n\n1. \tVerify the accuracy of key figures (spot-check top-line revenue, margin, etc.).\n2.\tEnsures brand/legal compliance (e.g., disclaimers for forward-looking statements, correct tone, no unauthorized claims).\n3. Provides feedback if issues are found or missing disclaimers.\n4. Approves the report if everything is correct.\n\nyou are expected to provide the following :\n\nReview state: Approved if the draft require no changes\n\nOtherwise,\n\nReview state: Require Updates\nReview Feedback: <detailed feedback>\n\n\n\n");
 
             AgentKernel.ImportPluginFromFunctions(
-                pluginName: WriterAgentFunction.GetSalesDataByProduct.Name,
-                functions: new[] { WriterAgentFunction.GetSalesDataByProduct.KernelFunction });
+                pluginName: ReviewAgentFunction.GetSalesDataByProduct.Name,
+                functions: new[] { ReviewAgentFunction.GetSalesDataByProduct.KernelFunction });
 
             AgentKernel.ImportPluginFromFunctions(
-                pluginName: WriterAgentFunction.GetSalesDataByCountry.Name,
-                functions: new[] { WriterAgentFunction.GetSalesDataByCountry.KernelFunction });
+                pluginName: ReviewAgentFunction.GetSalesDataByCountry.Name,
+                functions: new[] { ReviewAgentFunction.GetSalesDataByCountry.KernelFunction });
             
             AgentKernel.ImportPluginFromFunctions(
-                pluginName: WriterAgentFunction.GetReportingPolicyDoc.Name,
-                functions: new[] { WriterAgentFunction.GetReportingPolicyDoc.KernelFunction });
+                pluginName: ReviewAgentFunction.GetReportingPolicyDoc.Name,
+                functions: new[] { ReviewAgentFunction.GetReportingPolicyDoc.KernelFunction });
         }
 
         public static async Task<string> GetReport(string functionName, KernelArguments arguments, IDurableOrchestrationContext context, ILogger log)
