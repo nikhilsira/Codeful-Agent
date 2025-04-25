@@ -16,13 +16,16 @@ using LogicApps.Connectors.Managed.Kusto;
 using Fluid.Ast;
 using ICU4N.Util;
 using LogicApps.Connectors.Managed.Outlook;
+using Newtonsoft.Json.Linq;
 
 namespace LogicApps.Agent
 {
     public class SupervisorAgentInput 
     {
-        [JsonProperty("report_period")]
+        [JsonProperty("content")]
         public string ReportPeriod { get; set;}
+        [JsonProperty("role")]
+        public string Role { get; set;}
     }
 
     public static class SupervisorAgentFunction
@@ -33,9 +36,9 @@ namespace LogicApps.Agent
         private static string CurrentDraft { get; set; }
         private static string FinalDraft { get; set; }
 
-        [FunctionName("SupervisorAgent_HttpStart")]
+        [FunctionName("InvokeSupervisorAgent")]
         public static async Task<HttpResponseMessage> HttpStart(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestMessage req,
+            [HttpTrigger(AuthorizationLevel.Anonymous, "post")] HttpRequestMessage req,
             [DurableClient] IDurableOrchestrationClient starter,
             ILogger log)
         {
@@ -86,7 +89,43 @@ namespace LogicApps.Agent
                 context: context,
                 log: log);
         }
+/*
+        [FunctionName("SupervisorInputChannel")]
+        public static async Task<HttpResponseMessage> SupervisorInputChannel(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestMessage req,
+            [DurableClient] IDurableOrchestrationClient starter,
+            ILogger log)
+        {
 
+            var data = await req.Content.ReadAsStringAsync();
+
+            var input = JsonConvert.DeserializeObject<SupervisorAgentInput>(data);
+            ////var data = "Get me a report for the HyperCharge Batteries sales. Next, filter the data for United States and India.";
+
+
+            var chatMessage = new ChatMessageSummary
+            {
+                messageEntryType = "Content",
+                role = "User",
+                timestamp = DateTime.UtcNow,
+                iteration = GlobalChatHistory.GetNextIteration(),
+                messageEntryPayload = new ChatMessagePayload
+                {
+                    content = input.ReportPeriod
+                }
+            };
+
+            AgentFunction.Messages.Add(chatMessage);
+
+            // Function input comes from the request content.
+            string instanceId = await client.ScheduleNewOrchestrationInstanceAsync("AgentOrchestrator", input: input);
+
+            logger.LogInformation("Started orchestration with ID = '{instanceId}'.", instanceId);
+
+            var response = await client.CreateCheckStatusResponseAsync(req, instanceId).ConfigureAwait(continueOnCapturedContext: false);
+            return response;
+        }
+*/
         private static async Task<string> AgentLoop(
             string connectionName,
             string deploymentId,
@@ -99,9 +138,9 @@ namespace LogicApps.Agent
 
             var userMessage = "the requested report period is " + supervisorAgentInput.ReportPeriod;
 
-            await context.CallActivityAsync("SupervisorInitializeKernelAndQueueUserMessage", (deploymentId, agentConnection.Endpoint, agentConnection.ApiKey, userMessage));
+            int iteration = await context.CallActivityAsync<int>("SupervisorInitializeKernelAndQueueUserMessage", (deploymentId, agentConnection.Endpoint, agentConnection.ApiKey, userMessage));
 
-            var result = await GetAgentResponse(context: context, log: log);
+            var result = await GetAgentResponse(context: context, log: log, iteration: iteration);
 
             log.LogInformation("Agent response: {response}", result);
 
@@ -109,17 +148,27 @@ namespace LogicApps.Agent
         }
 
         [FunctionName("SupervisorInitializeKernelAndQueueUserMessage")]
-        public static async Task QueueUserMessageActivity(
+        public static async Task<int> QueueUserMessageActivity(
             [ActivityTrigger] IDurableActivityContext context)
         {
             var (deploymentId, endpoint, apiKey, userMessage) = context.GetInput<(string, string, string, string)>();
- 
+            int iteration = GlobalChatHistory.GetNextIteration();
+
             InitializeAgentKernel(
                 deploymentId: deploymentId,
                 endpoint: endpoint,
-                connectionKey: apiKey);
+                connectionKey: apiKey,
+                iteration: iteration);
 
             ChatHistory.AddUserMessage(userMessage);
+
+            GlobalChatHistory.AddMessage(
+                type: "user",
+                role: "user",
+                message: userMessage,
+                iteration: iteration);
+
+            return iteration;
         }
 
         [FunctionName("SupervisorGetChatHistory")]
@@ -154,7 +203,7 @@ namespace LogicApps.Agent
         [FunctionName("SupervisorPostFunctionResult")]
         public static async Task PostFunctionResultActivity([ActivityTrigger] IDurableActivityContext context)
         {
-            var (content, funcName, funcId) = context.GetInput<(string, string, string)>();
+            var (content, funcName, funcId, iteration) = context.GetInput<(string, string, string, int)>();
  
             var functionResult = new FunctionResultContent(
                 functionName: funcName,
@@ -162,9 +211,14 @@ namespace LogicApps.Agent
                 result: content);
  
             ChatHistory.Add(functionResult.ToChatMessage());
+            GlobalChatHistory.AddMessage(
+                type: "function",
+                role: "assistant",
+                message: content,
+                iteration: iteration);
         }
 
-        private static async Task<string> GetAgentResponse(IDurableOrchestrationContext context, ILogger log)
+        private static async Task<string> GetAgentResponse(IDurableOrchestrationContext context, ILogger log, int iteration)
         {
             var result = string.Empty;
 
@@ -178,7 +232,7 @@ namespace LogicApps.Agent
                     foreach (var functionCall in chatMessage.FunctionCalls)
                     {
                         var reportContent = await SupervisorAgentFunction.GetReport(functionCall.Name, functionCall.Arguments, context: context, log: log);
-                        await context.CallActivityAsync("SupervisorPostFunctionResult", (reportContent, functionCall.Name, functionCall.Id));
+                        await context.CallActivityAsync("SupervisorPostFunctionResult", (reportContent, functionCall.Name, functionCall.Id, iteration));
                     }
                 }
                 else
@@ -191,7 +245,7 @@ namespace LogicApps.Agent
             return result;
         }
 
-        private static void InitializeAgentKernel(string endpoint, string connectionKey, string deploymentId)
+        private static void InitializeAgentKernel(string endpoint, string connectionKey, string deploymentId, int iteration)
         {
             var builder = Kernel.CreateBuilder();
 
@@ -204,7 +258,9 @@ namespace LogicApps.Agent
 
             ChatHistory = new ChatHistory();
 
-            ChatHistory.AddSystemMessage(@"You are a supervisor who cordinates the work between different agents for producing a sales performance report. \n\nYou will be asked to produce a sales performance report for a given time period such as January 2025.\n\nYou will first ask the writer agent who can gather data from enterprise systems and draft a narrative report with business insights by passing time range and any specific instructions to produce a draft.\n\nOnce the writer produce a draft, you will send the draft to the reviewer agent who will either approve the report and request updates providing review feedback to be addressed. \n\nIf the report is approved by the reviewer you will send it to the publisher agent for publication.\n\nif the updates are requested, you will send this feedback to the reviewer and the reviewer will produce and updated draft which you will send to the reviwer.  You will continue this process until the report is approved. \n\n\n\n ");
+            string systemMessage = @"You are a supervisor who cordinates the work between different agents for producing a sales performance report. \n\nYou will be asked to produce a sales performance report for a given time period such as January 2025.\n\nYou will first ask the writer agent who can gather data from enterprise systems and draft a narrative report with business insights by passing time range and any specific instructions to produce a draft.\n\nOnce the writer produce a draft, you will send the draft to the reviewer agent who will either approve the report and request updates providing review feedback to be addressed. \n\nIf the report is approved by the reviewer you will send it to the publisher agent for publication.\n\nif the updates are requested, you will send this feedback to the reviewer and the reviewer will produce and updated draft which you will send to the reviwer.  You will continue this process until the report is approved. \n\n\n\n ";
+
+            ChatHistory.AddSystemMessage(systemMessage);
 
             AgentKernel.ImportPluginFromFunctions(
                 pluginName: SupervisorAgentFunction.WriterAgent.Name,

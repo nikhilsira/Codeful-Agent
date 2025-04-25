@@ -23,7 +23,7 @@ namespace LogicApps.Agent
         private static Kernel AgentKernel { get; set; }
         private static ChatHistory ChatHistory { get; set; }
 
-        [FunctionName("Function1_Reviewer_HttpStart")]
+        [FunctionName("InvokeReviewAgent")]
         public static async Task<HttpResponseMessage> HttpStart(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestMessage req,
             [DurableClient] IDurableOrchestrationClient starter,
@@ -89,28 +89,38 @@ namespace LogicApps.Agent
 
             var userMessage = "Below is the draft of the sales performance report for the time period "+reviewAgentInput.ReportPeriod+"\n\n``\n"+reviewAgentInput.BodyDraftReport+"\n``";
 
-            await context.CallActivityAsync("InitializeReviewAgentKernelAndQueueUserMessage", (deploymentId, agentConnection.Endpoint, agentConnection.ApiKey, userMessage));
+            int iteration = await context.CallActivityAsync<int>("InitializeReviewAgentKernelAndQueueUserMessage", (deploymentId, agentConnection.Endpoint, agentConnection.ApiKey, userMessage));
 
             var result = await ReviewAgentFunction
-                .GetAgentResponse(context: context, log: log);
+                .GetAgentResponse(context: context, log: log, iteration: iteration);
 
             //log.LogInformation("Agent response: {response}", result);
-
             return result;
         }
 
         [FunctionName("InitializeReviewAgentKernelAndQueueUserMessage")]
-        public static async Task QueueUserMessageActivity(
+        public static async Task<int> QueueUserMessageActivity(
             [ActivityTrigger] IDurableActivityContext context)
         {
             var (deploymentId, endpoint, apiKey, userMessage) = context.GetInput<(string, string, string, string)>();
- 
+
+            int iteration = GlobalChatHistory.GetNextIteration();
+
             ReviewAgentFunction.InitializeAgentKernel(
                 deploymentId: deploymentId,
                 endpoint: endpoint,
-                connectionKey: apiKey);
+                connectionKey: apiKey,
+                iteration: iteration);
 
             ChatHistory.AddUserMessage(userMessage);
+
+            GlobalChatHistory.AddMessage(
+                type: "user",
+                role: "user",
+                message: userMessage,
+                iteration: iteration);
+
+            return iteration;
         }
 
         [FunctionName("GetReviewerChatHistory")]
@@ -145,7 +155,7 @@ namespace LogicApps.Agent
         [FunctionName("PostReviewerFunctionResult")]
         public static async Task PostFunctionResultActivity([ActivityTrigger] IDurableActivityContext context)
         {
-            var (content, funcName, funcId) = context.GetInput<(string, string, string)>();
+            var (content, funcName, funcId, iteration) = context.GetInput<(string, string, string, int)>();
  
             var functionResult = new FunctionResultContent(
                 functionName: funcName,
@@ -153,9 +163,15 @@ namespace LogicApps.Agent
                 result: content);
  
             ChatHistory.Add(functionResult.ToChatMessage());
+
+            GlobalChatHistory.AddMessage(
+                type: "function",
+                role: "assistant",
+                message: content,
+                iteration: iteration);
         }
 
-        private static async Task<string> GetAgentResponse(IDurableOrchestrationContext context, ILogger log)
+        private static async Task<string> GetAgentResponse(IDurableOrchestrationContext context, ILogger log, int iteration)
         {
             var result = string.Empty;
 
@@ -169,7 +185,7 @@ namespace LogicApps.Agent
                     foreach (var functionCall in chatMessage.FunctionCalls)
                     {
                         var reportContent = await ReviewAgentFunction.GetReport(functionCall.Name, functionCall.Arguments, context: context, log: log);
-                        await context.CallActivityAsync("PostReviewerFunctionResult", (reportContent, functionCall.Name, functionCall.Id));
+                        await context.CallActivityAsync("PostReviewerFunctionResult", (reportContent, functionCall.Name, functionCall.Id, iteration));
                     }
                 }
                 else
@@ -182,7 +198,7 @@ namespace LogicApps.Agent
             return result;
         }
 
-        private static void InitializeAgentKernel(string endpoint, string connectionKey, string deploymentId)
+        private static void InitializeAgentKernel(string endpoint, string connectionKey, string deploymentId, int iteration)
         {
             var builder = Kernel.CreateBuilder();
 
@@ -195,8 +211,9 @@ namespace LogicApps.Agent
 
             ChatHistory = new ChatHistory();
 
-            ChatHistory.AddSystemMessage(
-                @"You are a report reviewer and is reponble for revewing salees perforance report. \n\nYou will be given a draft report and your responsibilities are the following\n\n1. \tVerify the accuracy of key figures (spot-check top-line revenue, margin, etc.).\n2.\tEnsures brand/legal compliance (e.g., disclaimers for forward-looking statements, correct tone, no unauthorized claims).\n3. Provides feedback if issues are found or missing disclaimers.\n4. Approves the report if everything is correct.\n\nyou are expected to provide the following :\n\nReview state: Approved if the draft require no changes\n\nOtherwise,\n\nReview state: Require Updates\nReview Feedback: <detailed feedback>\n\n\n\n");
+            string systemMessage = @"You are a report reviewer and is reponble for revewing salees perforance report. \n\nYou will be given a draft report and your responsibilities are the following\n\n1. \tVerify the accuracy of key figures (spot-check top-line revenue, margin, etc.).\n2.\tEnsures brand/legal compliance (e.g., disclaimers for forward-looking statements, correct tone, no unauthorized claims).\n3. Provides feedback if issues are found or missing disclaimers.\n4. Approves the report if everything is correct.\n\nyou are expected to provide the following :\n\nReview state: Approved if the draft require no changes\n\nOtherwise,\n\nReview state: Require Updates\nReview Feedback: <detailed feedback>\n\n\n\n";
+
+            ChatHistory.AddSystemMessage(systemMessage);
 
             AgentKernel.ImportPluginFromFunctions(
                 pluginName: ReviewAgentFunction.GetSalesDataByProduct.Name,

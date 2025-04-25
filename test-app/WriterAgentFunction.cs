@@ -23,7 +23,7 @@ namespace LogicApps.Agent
         private static Kernel AgentKernel { get; set; }
         private static ChatHistory ChatHistory { get; set; }
 
-        [FunctionName("WriterAgent_HttpStart")]
+        [FunctionName("InvokeWriterAgent")]
         public static async Task<HttpResponseMessage> HttpStart(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestMessage req,
             [DurableClient] IDurableOrchestrationClient starter,
@@ -89,10 +89,10 @@ namespace LogicApps.Agent
 
             var userMessage = "*****Date range****\n"+writerAgentInput.ReportDateRange+"\n\nif there was a previous draft, they will be provided below. if they are present please incorporate the feedback while adhering to the original guidance.\n\n*****Previous Draft****\n``\n"+writerAgentInput.CurrentDraft+"\n``\n\n**** review feedback ***\n``\n"+writerAgentInput.CurrentDraftFeedback+"\n``";
 
-            await context.CallActivityAsync("InitializeKernelAndQueueUserMessage", (deploymentId, agentConnection.Endpoint, agentConnection.ApiKey, userMessage));
+            int iteration = await context.CallActivityAsync<int>("InitializeKernelAndQueueUserMessage", (deploymentId, agentConnection.Endpoint, agentConnection.ApiKey, userMessage));
 
             var result = await WriterAgentFunction
-                .GetAgentResponse(context: context, log: log);
+                .GetAgentResponse(context: context, log: log, iteration: iteration);
 
             //log.LogInformation("Agent response: {response}", result);
 
@@ -100,17 +100,28 @@ namespace LogicApps.Agent
         }
 
         [FunctionName("InitializeKernelAndQueueUserMessage")]
-        public static async Task QueueUserMessageActivity(
+        public static async Task<int> QueueUserMessageActivity(
             [ActivityTrigger] IDurableActivityContext context)
         {
             var (deploymentId, endpoint, apiKey, userMessage) = context.GetInput<(string, string, string, string)>();
- 
+
+            int iteration = GlobalChatHistory.GetNextIteration();
+
             WriterAgentFunction.InitializeAgentKernel(
                 deploymentId: deploymentId,
                 endpoint: endpoint,
-                connectionKey: apiKey);
+                connectionKey: apiKey,
+                iteration: iteration);
 
             ChatHistory.AddUserMessage(userMessage);
+
+            GlobalChatHistory.AddMessage(
+                type: "user",
+                role: "user",
+                message: userMessage,
+                iteration: iteration);
+
+            return iteration;
         }
 
         [FunctionName("GetChatHistory")]
@@ -145,7 +156,7 @@ namespace LogicApps.Agent
         [FunctionName("PostFunctionResult")]
         public static async Task PostFunctionResultActivity([ActivityTrigger] IDurableActivityContext context)
         {
-            var (content, funcName, funcId) = context.GetInput<(string, string, string)>();
+            var (content, funcName, funcId, iteration) = context.GetInput<(string, string, string, int)>();
  
             var functionResult = new FunctionResultContent(
                 functionName: funcName,
@@ -153,9 +164,15 @@ namespace LogicApps.Agent
                 result: content);
  
             ChatHistory.Add(functionResult.ToChatMessage());
+
+            GlobalChatHistory.AddMessage(
+                type: "function",
+                role: "assistant",
+                message: content,
+                iteration: iteration);
         }
 
-        private static async Task<string> GetAgentResponse(IDurableOrchestrationContext context, ILogger log)
+        private static async Task<string> GetAgentResponse(IDurableOrchestrationContext context, ILogger log, int iteration)
         {
             var result = string.Empty;
 
@@ -169,7 +186,7 @@ namespace LogicApps.Agent
                     foreach (var functionCall in chatMessage.FunctionCalls)
                     {
                         var reportContent = await WriterAgentFunction.GetReport(functionCall.Name, functionCall.Arguments, context: context, log: log);
-                        await context.CallActivityAsync("PostFunctionResult", (reportContent, functionCall.Name, functionCall.Id));
+                        await context.CallActivityAsync("PostFunctionResult", (reportContent, functionCall.Name, functionCall.Id, iteration));
                     }
                 }
                 else
@@ -182,7 +199,7 @@ namespace LogicApps.Agent
             return result;
         }
 
-        private static void InitializeAgentKernel(string endpoint, string connectionKey, string deploymentId)
+        private static void InitializeAgentKernel(string endpoint, string connectionKey, string deploymentId, int iteration)
         {
             var builder = Kernel.CreateBuilder();
 
@@ -195,8 +212,8 @@ namespace LogicApps.Agent
 
             ChatHistory = new ChatHistory();
 
-            ChatHistory.AddSystemMessage(
-                @"You are being tasked to write a detailed sales performance report.  You have access to monthly sales records for the last two years. \n\nYou may also be provided with a previous draft of a report with detailed feedback and you will update the previous draft to incorporate the feedback while adhering to the original guidance.\n\nYour responsibility\n\n•\tPulls raw data from the tools provided\n•\t Generate a structured report draft, providing:\n1.\tTextual summary of month-over-month changes, highlight bullet points.\n2.\tData references (e.g., top-line revenue figures).\n3.\t(Optional) Basic chart suggestions or placeholders.\n\nYou will also be provide date range for the report. example March 2025 and any special instructions (e.g., “Focus on new product line,” “Compare to last year’s forecast”).\n\nYour draft report should contain the following\n1.\tText narrative (“April revenue reached $2.1M, up 5% from March...”).\n2.\tKey metrics (tables, bullet points).\n3.\tReferences to raw data (so the Reviewer can spot-check if needed).\n");
+            string systemMessage = @"You are being tasked to write a detailed sales performance report.  You have access to monthly sales records for the last two years. \n\nYou may also be provided with a previous draft of a report with detailed feedback and you will update the previous draft to incorporate the feedback while adhering to the original guidance.\n\nYour responsibility\n\n•\tPulls raw data from the tools provided\n•\t Generate a structured report draft, providing:\n1.\tTextual summary of month-over-month changes, highlight bullet points.\n2.\tData references (e.g., top-line revenue figures).\n3.\t(Optional) Basic chart suggestions or placeholders.\n\nYou will also be provide date range for the report. example March 2025 and any special instructions (e.g., “Focus on new product line,” “Compare to last year’s forecast”).\n\nYour draft report should contain the following\n1.\tText narrative (“April revenue reached $2.1M, up 5% from March...”).\n2.\tKey metrics (tables, bullet points).\n3.\tReferences to raw data (so the Reviewer can spot-check if needed).\nPlease write the report using HTML.\n";
+            ChatHistory.AddSystemMessage(systemMessage);
 
             AgentKernel.ImportPluginFromFunctions(
                 pluginName: WriterAgentFunction.GetSalesDataByProduct.Name,
