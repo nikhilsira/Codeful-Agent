@@ -75,6 +75,7 @@ public class GlobalChatHistory
             Messages.Add(new ChatMessageSummary
             {
                 messageEntryType = type,
+                role = role,
                 messageEntryPayload = new ChatMessagePayload { content = message },
                 iteration = iteration,
                 timestamp = DateTime.UtcNow
