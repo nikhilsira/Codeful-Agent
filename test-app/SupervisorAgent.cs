@@ -14,6 +14,7 @@ using Newtonsoft.Json;
 using LogicApps.Connectors.ServiceProviders.AzureBlob;
 using LogicApps.Connectors.Managed.Kusto;
 using Fluid.Ast;
+using ICU4N.Util;
 
 namespace LogicApps.Agent
 {
@@ -28,6 +29,9 @@ namespace LogicApps.Agent
         private static Kernel AgentKernel { get; set; }
         private static ChatHistory ChatHistory { get; set; }
 
+        private static string CurrentDraft { get; set; }
+        private static string FinalDraft { get; set; }
+
         [FunctionName("SupervisorAgent_HttpStart")]
         public static async Task<HttpResponseMessage> HttpStart(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post")] HttpRequestMessage req,
@@ -36,10 +40,10 @@ namespace LogicApps.Agent
         {
 
             var requestStream = await req.Content.ReadAsStringAsync();
-            var writerAgentInput = JsonConvert.DeserializeObject<WriterAgentInput>(requestStream);
+            var supervisorAgentInput = JsonConvert.DeserializeObject<SupervisorAgentInput>(requestStream);
 
             // Function input comes from the request content.
-            string instanceId = await starter.StartNewAsync("SupervisorAgentOrchestrator", input: writerAgentInput);
+            string instanceId = await starter.StartNewAsync("SupervisorAgentOrchestrator", input: supervisorAgentInput);
 
             log.LogInformation("Started orchestration with ID = '{instanceId}'.", instanceId);
             
@@ -69,15 +73,15 @@ namespace LogicApps.Agent
         public static async Task<string> AgentOrchestrator(
             [OrchestrationTrigger] IDurableOrchestrationContext context, ILogger log)
         {
-            log.LogInformation("Start agent orchestrator.");
+            log.LogInformation("Start supervisor agent orchestrator.");
 
-            var writerAgentInput = context.GetInput<SupervisorAgentInput>();
+            var supervisorAgentInput = context.GetInput<SupervisorAgentInput>();
 
             return await AgentLoop(
                 connectionName: "agent",
                 deploymentId: "gpt-4o",
-                agentTools: new[] { WriterAgent, ReviewerAgent },
-                input: writerAgentInput,
+                agentTools: new[] { WriterAgent, ReviewerAgent, PublisherAgent },
+                supervisorAgentInput: supervisorAgentInput,
                 context: context,
                 log: log);
         }
@@ -86,13 +90,13 @@ namespace LogicApps.Agent
             string connectionName,
             string deploymentId,
             AgentTool[] agentTools,
-            SupervisorAgentInput input,
+            SupervisorAgentInput supervisorAgentInput,
             IDurableOrchestrationContext context,
             ILogger log)
         {
             var agentConnection = ConnectionFileParser.GetAgentConnection(connectionName);
 
-            var userMessage = "the requested report period is " + input.ReportPeriod;
+            var userMessage = "the requested report period is " + supervisorAgentInput.ReportPeriod;
 
             await context.CallActivityAsync("SupervisorInitializeKernelAndQueueUserMessage", (deploymentId, agentConnection.Endpoint, agentConnection.ApiKey, userMessage));
 
@@ -172,7 +176,7 @@ namespace LogicApps.Agent
                 {
                     foreach (var functionCall in chatMessage.FunctionCalls)
                     {
-                        var reportContent = await WriterAgentFunction.GetReport(functionCall.Name, functionCall.Arguments, context: context, log: log);
+                        var reportContent = await SupervisorAgentFunction.GetReport(functionCall.Name, functionCall.Arguments, context: context, log: log);
                         await context.CallActivityAsync("SupervisorPostFunctionResult", (reportContent, functionCall.Name, functionCall.Id));
                     }
                 }
@@ -199,37 +203,65 @@ namespace LogicApps.Agent
 
             ChatHistory = new ChatHistory();
 
-            ChatHistory.AddSystemMessage(@"You are a supervisor who  cordinates the work between different agents for producing a sales performance report. \n\nYou will be asked to produce a sales performance report for a given time period such as January 2025.\n\nYou will first ask the writer agent who can gather data from enterprise systems and draft a narrative report with business insights by passing time range and any specific instructions to produce a draft.\n\nOnce the writer produce a draft, you will send the draft to the reviewer agent who will either approve the report and request updates providing review feedback to be addressed. \n\nIf the report is approved by the reviewer you will send it to the publisher agent for publication.\n\nif the updates are requested, you will send this feedback to the reviewer and the reviewer will produce and updated draft which you will send to the reviwer.  You will continue this process until the report is approved. \n\n\n\n ");
+            ChatHistory.AddSystemMessage(@"You are a supervisor who cordinates the work between different agents for producing a sales performance report. \n\nYou will be asked to produce a sales performance report for a given time period such as January 2025.\n\nYou will first ask the writer agent who can gather data from enterprise systems and draft a narrative report with business insights by passing time range and any specific instructions to produce a draft.\n\nOnce the writer produce a draft, you will send the draft to the reviewer agent who will either approve the report and request updates providing review feedback to be addressed. \n\nIf the report is approved by the reviewer you will send it to the publisher agent for publication.\n\nif the updates are requested, you will send this feedback to the reviewer and the reviewer will produce and updated draft which you will send to the reviwer.  You will continue this process until the report is approved. \n\n\n\n ");
 
             AgentKernel.ImportPluginFromFunctions(
-                pluginName: WriterAgentFunction.GetSalesDataByProduct.Name,
-                functions: new[] { WriterAgentFunction.GetSalesDataByProduct.KernelFunction });
+                pluginName: SupervisorAgentFunction.WriterAgent.Name,
+                functions: new[] { SupervisorAgentFunction.WriterAgent.KernelFunction });
 
             AgentKernel.ImportPluginFromFunctions(
-                pluginName: WriterAgentFunction.GetSalesDataByCountry.Name,
-                functions: new[] { WriterAgentFunction.GetSalesDataByCountry.KernelFunction });
+                pluginName: SupervisorAgentFunction.ReviewerAgent.Name,
+                functions: new[] { SupervisorAgentFunction.ReviewerAgent.KernelFunction });
+
+            AgentKernel.ImportPluginFromFunctions(
+                pluginName: SupervisorAgentFunction.PublisherAgent.Name,
+                functions: new[] { SupervisorAgentFunction.PublisherAgent.KernelFunction });
         }
 
         public static async Task<string> GetReport(string functionName, KernelArguments arguments, IDurableOrchestrationContext context, ILogger log)
         {
 
             string orchName;
+            string result;
 
             switch (functionName)
             {
                 case "writer_agent":
-                    orchName = "Product";
+                    orchName = "WriterAgentOrchestrator";
+                    var writerAgentToolParameters = JsonConvert.DeserializeObject<WriterAgentToolParameters>(arguments[functionName].ToString());
+                    var writerAgentInput = new WriterAgentInput
+                    {
+                        CurrentDraft = SupervisorAgentFunction.CurrentDraft,
+                        CurrentDraftFeedback = writerAgentToolParameters.PreviousDraftFeedback,
+                        ReportDateRange = writerAgentToolParameters.ReportPeriod
+                    };
+                    
+                    var writerAgentOutput = await context.CallSubOrchestratorAsync<string>(orchName, writerAgentInput);
+                    SupervisorAgentFunction.CurrentDraft = writerAgentOutput;
+                    result = writerAgentOutput;
                     break;
 
                 case "reviewer_agent":
-                    orchName = "Country";
+                    orchName = "ReviewAgentOrchestrator";
+                    var reviewerAgentToolParameters = JsonConvert.DeserializeObject<ReviewerAgentToolParameters>(arguments[functionName].ToString());
+                    var reviewerAgentInput = new ReviewAgentInput
+                    {
+                        ReportPeriod = reviewerAgentToolParameters.ReportPeriod,
+                        BodyDraftReport = reviewerAgentToolParameters.ReportDraft
+                    };
+                    var reviewAgentOutput = await context.CallSubOrchestratorAsync<string>(orchName, reviewerAgentInput);
+                    result = reviewAgentOutput;
                     break;
+
+                case "publisher_agent":
+                    SupervisorAgentFunction.FinalDraft = arguments[functionName].ToString();
+                    return "";
 
                 default:
                     throw new InvalidOperationException();
             }
 
-            return await context.CallSubOrchestratorAsync<string>(orchName, arguments[functionName]);
+            return result;
 
 /*
             var dateInfo = JsonConvert.DeserializeObject<DateInfo>(arguments[functionName].ToString());
@@ -243,6 +275,20 @@ namespace LogicApps.Agent
 
             return kusto.ToString();
             */
+        }
+        public class WriterAgentToolParameters
+        {
+            [JsonProperty("report_period")]
+            public string ReportPeriod { get; set; }
+            [JsonProperty("previous_draft_feedback")]
+            public string PreviousDraftFeedback { get; set; }
+        }
+        public class ReviewerAgentToolParameters
+        {
+            [JsonProperty("report_period")]
+            public string ReportPeriod { get; set; }
+            [JsonProperty("report_draft")]
+            public string ReportDraft { get; set; }
         }
 
         public static readonly AgentTool WriterAgent = new AgentTool(
@@ -280,8 +326,8 @@ namespace LogicApps.Agent
             }");
 
         public static readonly AgentTool PublisherAgent = new AgentTool(
-            name: "reviewer_agent",
-            description: "The reviewer agent who will either approve the report and request updates providing review feedback to be addressed",
+            name: "publisher_agent",
+            description: "The publisher agent who can make the final report formating and publication of the report.",
             schema: @"{
                 ""type"": ""object"",
                 ""properties"": {

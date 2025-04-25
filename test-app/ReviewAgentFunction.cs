@@ -36,7 +36,7 @@ namespace LogicApps.Agent
             // Function input comes from the request content.
             string instanceId = await starter.StartNewAsync("ReviewAgentOrchestrator", input: reviewAgentInput);
 
-            log.LogInformation("Started orchestration with ID = '{instanceId}'.", instanceId);
+            //log.LogInformation("Started orchestration with ID = '{instanceId}'.", instanceId);
             
             DurableOrchestrationStatus status;
             do
@@ -64,9 +64,9 @@ namespace LogicApps.Agent
         public static async Task<string> AgentOrchestrator(
             [OrchestrationTrigger] IDurableOrchestrationContext context, ILogger log)
         {
-            log.LogInformation("Start agent orchestrator.");
-
             var reviewAgentInput = context.GetInput<ReviewAgentInput>();
+
+            log.LogInformation("Start Review agent orchestrator with input." + reviewAgentInput.ToString());
 
             return await ReviewAgentFunction.ReviewAgentLoop(
                 connectionName: "agent",
@@ -94,7 +94,7 @@ namespace LogicApps.Agent
             var result = await ReviewAgentFunction
                 .GetAgentResponse(context: context, log: log);
 
-            log.LogInformation("Agent response: {response}", result);
+            //log.LogInformation("Agent response: {response}", result);
 
             return result;
         }
@@ -163,7 +163,7 @@ namespace LogicApps.Agent
             {
 
                 var chatMessage = await context.CallActivityAsync<ChatMessageActivityResult>("GetReviewerChatHistory", null);
-                log.LogInformation("Chat message: {message}", JsonConvert.SerializeObject(chatMessage));
+                //log.LogInformation("Chat message: {message}", JsonConvert.SerializeObject(chatMessage));
                 if (chatMessage.FunctionCalls.Any())
                 {
                     foreach (var functionCall in chatMessage.FunctionCalls)
@@ -245,7 +245,7 @@ namespace LogicApps.Agent
                     Db = "process",
                     Csl = "let y = "+dateInfo.Year+";\nlet m = "+dateInfo.Month+";\nlet startDateString=strcat(y-1, \"-\", m, \"-01 00:00:00.0000000\");\nlet startDate=todatetime(startDateString);\nlet enddate=datetime_add('month', 1, startDate);\nSalesRecords\n|where DATETIME >= startDate  and DATETIME <= enddate\n| summarize sum(Sales) by "+aggName+""
                 });
-                log.LogInformation("Kusto result: {result}", kusto.ToString());
+                //log.LogInformation("Kusto result: {result}", kusto.ToString());
                 result = kusto.ToString();
             }
             if (blobName.IsNotNullOrEmpty())
@@ -254,7 +254,7 @@ namespace LogicApps.Agent
                     ContainerName = "policydocs",
                     BlobName = blobName,
                 });
-                log.LogInformation("Blob result: {result}", blob.Content);
+                //log.LogInformation("Blob result: {result}", blob.Content);
                 result = blob.Content;
             }
             return result;
