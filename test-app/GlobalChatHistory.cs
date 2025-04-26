@@ -2,6 +2,7 @@ namespace LogicApps.Agent;
 
 using System;
 using System.Collections.Generic;
+using System.Net.Http;
 using System.Threading;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -46,7 +47,7 @@ public class GlobalChatHistory
     private static int Counter = 0;
 
     [FunctionName("GetAllChatHistory")]
-    public static IActionResult GetChatHistory(
+    public static HttpResponseMessage GetChatHistory(
         [HttpTrigger(AuthorizationLevel.Anonymous)] HttpRequest req)
     {
         ChatMessageSummary[] messages; 
@@ -60,7 +61,13 @@ public class GlobalChatHistory
             value = messages
         };
 
-        return new OkObjectResult(responseContent);
+        var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent(JsonConvert.SerializeObject(responseContent), System.Text.Encoding.UTF8, "application/json")
+        };
+        response.Headers.Add("Access-Control-Allow-Origin", "*");
+
+        return response;
     }
 
     public static int GetNextIteration()

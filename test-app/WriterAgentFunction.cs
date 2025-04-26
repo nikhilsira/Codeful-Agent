@@ -116,8 +116,8 @@ namespace LogicApps.Agent
             ChatHistory.AddUserMessage(userMessage);
 
             GlobalChatHistory.AddMessage(
-                type: "user",
-                role: "user",
+                type: "Content",
+                role: "User",
                 message: userMessage,
                 iteration: iteration);
 
@@ -166,8 +166,8 @@ namespace LogicApps.Agent
             ChatHistory.Add(functionResult.ToChatMessage());
 
             GlobalChatHistory.AddMessage(
-                type: "function",
-                role: "assistant",
+                type: "Content",
+                role: "Assistant",
                 message: content,
                 iteration: iteration);
         }
