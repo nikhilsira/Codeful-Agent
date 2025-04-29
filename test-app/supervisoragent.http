@@ -1,0 +1,7 @@
+POST http://localhost:7691/api/InvokeSupervisorAgent HTTP/1.1
+content-type: application/json
+
+{
+  "content": "2025 February",
+  "role": "User"
+}

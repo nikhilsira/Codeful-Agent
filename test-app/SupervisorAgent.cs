@@ -166,7 +166,7 @@ namespace LogicApps.Agent
                 type: "Content",
                 role: "User",
                 message: userMessage,
-                iteration: iteration);
+                iteration: GlobalChatHistory.GetNextIteration());
 
             return iteration;
         }
@@ -212,10 +212,10 @@ namespace LogicApps.Agent
  
             ChatHistory.Add(functionResult.ToChatMessage());
             GlobalChatHistory.AddMessage(
-                type: "Content",
-                role: "Assistant",
+                type: "ToolResult",
+                role: "Tool",
                 message: content,
-                iteration: iteration);
+                iteration: GlobalChatHistory.GetNextIteration());
         }
 
         private static async Task<string> GetAgentResponse(IDurableOrchestrationContext context, ILogger log, int iteration)
@@ -238,6 +238,11 @@ namespace LogicApps.Agent
                 else
                 {
                     result = chatMessage.Content;
+                    GlobalChatHistory.AddMessage(
+                        type: "Content",
+                        role: "Assistant",
+                        message: result,
+                        iteration: GlobalChatHistory.GetNextIteration());
                     break;
                 }
             } while (true);

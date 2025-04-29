@@ -1,0 +1,8 @@
+POST http://localhost:7691/api/WriterAgent_HttpStart HTTP/1.1
+content-type: application/json
+
+{
+  "current_draft": "",
+  "current_draft_feedback": "There is no feedback since there is no draft yet.",
+  "report_date_range": "2025 February"
+}

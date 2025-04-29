@@ -119,7 +119,7 @@ namespace LogicApps.Agent
                 type: "Content",
                 role: "User",
                 message: userMessage,
-                iteration: iteration);
+                iteration: GlobalChatHistory.GetNextIteration());
 
             return iteration;
         }
@@ -166,10 +166,10 @@ namespace LogicApps.Agent
             ChatHistory.Add(functionResult.ToChatMessage());
 
             GlobalChatHistory.AddMessage(
-                type: "Content",
-                role: "Assistant",
+                type: "ToolResult",
+                role: "Tool",
                 message: content,
-                iteration: iteration);
+                iteration: GlobalChatHistory.GetNextIteration());
         }
 
         private static async Task<string> GetAgentResponse(IDurableOrchestrationContext context, ILogger log, int iteration)
@@ -192,6 +192,11 @@ namespace LogicApps.Agent
                 else
                 {
                     result = chatMessage.Content;
+                    GlobalChatHistory.AddMessage(
+                        type: "Content",
+                        role: "Assistant",
+                        message: result,
+                        iteration: GlobalChatHistory.GetNextIteration());
                     break;
                 }
             } while (true);
@@ -212,7 +217,7 @@ namespace LogicApps.Agent
 
             ChatHistory = new ChatHistory();
 
-            string systemMessage = @"You are being tasked to write a detailed sales performance report.  You have access to monthly sales records for the last two years. \n\nYou may also be provided with a previous draft of a report with detailed feedback and you will update the previous draft to incorporate the feedback while adhering to the original guidance.\n\nYour responsibility\n\n•\tPulls raw data from the tools provided\n•\t Generate a structured report draft, providing:\n1.\tTextual summary of month-over-month changes, highlight bullet points.\n2.\tData references (e.g., top-line revenue figures).\n3.\t(Optional) Basic chart suggestions or placeholders.\n\nYou will also be provide date range for the report. example March 2025 and any special instructions (e.g., “Focus on new product line,” “Compare to last year’s forecast”).\n\nYour draft report should contain the following\n1.\tText narrative (“April revenue reached $2.1M, up 5% from March...”).\n2.\tKey metrics (tables, bullet points).\n3.\tReferences to raw data (so the Reviewer can spot-check if needed).\nPlease write the report using HTML.\n";
+            string systemMessage = @"You are being tasked to write a detailed sales performance report.  You have access to monthly sales records for the last two years. \n\nYou may also be provided with a previous draft of a report with detailed feedback and you will update the previous draft to incorporate the feedback while adhering to the original guidance.\n\nYour responsibility\n\n•\tPulls raw data from the tools provided\n•\t Generate a structured report draft, providing:\n1.\tTextual summary of month-over-month changes, highlight bullet points.\n2.\tData references (e.g., top-line revenue figures).\n3.\t(Optional) Basic chart suggestions or placeholders.\n\nYou will also be provide date range for the report. example March 2025 and any special instructions (e.g., “Focus on new product line,” “Compare to last year’s forecast”).\n\nYour draft report should contain the following\n1.\tText narrative (“April revenue reached $2.1M, up 5% from March...”).\n2.\tKey metrics (tables, bullet points).\n3.\tReferences to raw data (so the Reviewer can spot-check if needed).\n";
             ChatHistory.AddSystemMessage(systemMessage);
 
             AgentKernel.ImportPluginFromFunctions(
